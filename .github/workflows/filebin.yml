@@ -61,7 +61,7 @@ jobs:
             -H "Content-Type: application/octet-stream" \
             -o response.json \
             -w "%{http_code}" \
-            "https://filebin.net/darsiali/$FILE_NAME" > status_code.txt
+            "https://filebin.net/darsialijadid/$FILE_NAME" > status_code.txt
 
           HTTP_STATUS=$(cat status_code.txt)
           echo ""
