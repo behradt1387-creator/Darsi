@@ -1,4 +1,4 @@
-name: Stream Upload to Filebin
+name: Robust Upload to Filebin
 
 on:
   workflow_dispatch:
@@ -8,50 +8,73 @@ on:
         required: true
         type: string
       file_name:
-        description: 'نام فایل همراه با پسوند (مثال: archive.zip)'
+        description: 'نام فایل همراه با پسوند (مثال: file.mp4)'
         required: true
         type: string
 
 jobs:
-  stream-upload:
+  download-and-upload:
     runs-on: ubuntu-latest
     steps:
-      - name: استریم مستقیم داده‌ها از مبدأ به Filebin
+      - name: دانلود پایدار فایل از مبدأ
         env:
           TARGET_URL: ${{ inputs.file_url }}
           FILE_NAME: ${{ inputs.file_name }}
         run: |
-          set -e -o pipefail
+          mkdir -p downloads
+          cd downloads
 
-          echo "🚀 شروع استریم زنده فایل..."
-          echo "🌐 مبدأ: $TARGET_URL"
-          echo "📦 نام مقصد: $FILE_NAME"
+          echo "در حال دانلود فایل با HTTP/1.1 و امکان Retry..."
+          # اجبار به HTTP/1.1 برای جلوگیری از خطای curl 92
+          # فلگ های retry و -C - در صورت قطعی اتصال، دانلود را ادامه میدهند
+          curl --http1.1 \
+            -L \
+            --retry 10 \
+            --retry-delay 5 \
+            --retry-max-time 7200 \
+            -C - \
+            --progress-bar \
+            "$TARGET_URL" \
+            -o "$FILE_NAME"
 
-          # دانلود با curl و پایپ مستقیم به آپلود Filebin بدون نوشتن روی دیسک
-          # سوئیچ -T - یعنی داده را به صورت Chunked از stdin بخوان
-          curl -f -L "$TARGET_URL" \
-            | curl -s -S \
-              -X POST \
-              -T - \
-              -H "filename: $FILE_NAME" \
-              -H "Content-Type: application/octet-stream" \
-              -o response.json \
-              -w "%{http_code}" \
-              "https://filebin.net/darsiali/$FILE_NAME" > status_code.txt
+          if [ ! -f "$FILE_NAME" ]; then
+            echo "خطا: فایل دانلود نشد."
+            exit 1
+          fi
+
+          echo "دانلود کامل شد. حجم فایل:"
+          ls -lh "$FILE_NAME"
+
+      - name: آپلود به Filebin (استریم از دیسک)
+        env:
+          FILE_NAME: ${{ inputs.file_name }}
+        run: |
+          cd downloads
+
+          echo "در حال آپلود به Filebin..."
+          # استفاده از -T باعث میشود فایل تکه تکه از دیسک ارسال شود بدون پر شدن RAM
+          curl --progress-bar \
+            -X POST \
+            -T "$FILE_NAME" \
+            -H "filename: $FILE_NAME" \
+            -H "Content-Type: application/octet-stream" \
+            -o response.json \
+            -w "%{http_code}" \
+            "https://filebin.net/darsiali/$FILE_NAME" > status_code.txt
 
           HTTP_STATUS=$(cat status_code.txt)
           echo ""
-          echo "کد وضعیت HTTP سرور: $HTTP_STATUS"
+          echo "کد پاسخ سرور: $HTTP_STATUS"
           cat response.json
 
           if [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 300 ]; then
             echo ""
             echo "--------------------------------------------------"
-            echo "✅ استریم و انتقال با موفقیت تکمیل شد."
+            echo "✅ آپلود با موفقیت انجام شد."
             echo "📁 پوشه: https://filebin.net/darsiali"
             echo "📥 فایل: https://filebin.net/darsiali/$FILE_NAME"
             echo "--------------------------------------------------"
           else
-            echo "❌ خطا در حین انتقال. کد وضعیت: $HTTP_STATUS"
+            echo "❌ خطا در آپلود. کد وضعیت: $HTTP_STATUS"
             exit 1
           fi
