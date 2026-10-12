@@ -16,7 +16,7 @@ jobs:
   download-and-upload:
     runs-on: ubuntu-latest
     steps:
-      - name: دانلود پایدار فایل از مبدأ
+      - name: دانلود پرسرعت و پایدار فایل
         env:
           TARGET_URL: ${{ inputs.file_url }}
           FILE_NAME: ${{ inputs.file_name }}
@@ -24,35 +24,36 @@ jobs:
           mkdir -p downloads
           cd downloads
 
-          echo "در حال دانلود فایل با HTTP/1.1 و امکان Retry..."
-          # اجبار به HTTP/1.1 برای جلوگیری از خطای curl 92
-          # فلگ های retry و -C - در صورت قطعی اتصال، دانلود را ادامه میدهند
-          curl --http1.1 \
-            -L \
-            --retry 10 \
-            --retry-delay 5 \
-            --retry-max-time 7200 \
-            -C - \
-            --progress-bar \
-            "$TARGET_URL" \
-            -o "$FILE_NAME"
+          echo "بررسی و آماده‌سازی aria2c..."
+          which aria2c > /dev/null || (sudo apt-get update -qq && sudo apt-get install -y aria2 -qq)
+
+          echo "شروع دانلود با چند کانکشن هم‌زمان..."
+          aria2c \
+            --continue=true \
+            --max-connection-per-server=4 \
+            --split=4 \
+            --min-split-size=5M \
+            --max-tries=20 \
+            --retry-wait=3 \
+            --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
+            --out="$FILE_NAME" \
+            "$TARGET_URL"
 
           if [ ! -f "$FILE_NAME" ]; then
             echo "خطا: فایل دانلود نشد."
             exit 1
           fi
 
-          echo "دانلود کامل شد. حجم فایل:"
+          echo "دانلود با موفقیت پایان یافت. مشخصات فایل:"
           ls -lh "$FILE_NAME"
 
-      - name: آپلود به Filebin (استریم از دیسک)
+      - name: آپلود استریم به Filebin
         env:
           FILE_NAME: ${{ inputs.file_name }}
         run: |
           cd downloads
 
-          echo "در حال آپلود به Filebin..."
-          # استفاده از -T باعث میشود فایل تکه تکه از دیسک ارسال شود بدون پر شدن RAM
+          echo "در حال ارسال فایل به Filebin..."
           curl --progress-bar \
             -X POST \
             -T "$FILE_NAME" \
@@ -70,11 +71,11 @@ jobs:
           if [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 300 ]; then
             echo ""
             echo "--------------------------------------------------"
-            echo "✅ آپلود با موفقیت انجام شد."
-            echo "📁 پوشه: https://filebin.net/darsiali"
+            echo "✅ آپلود موفقیت‌آمیز بود."
+            echo "📁 سطل: https://filebin.net/darsiali"
             echo "📥 فایل: https://filebin.net/darsiali/$FILE_NAME"
             echo "--------------------------------------------------"
           else
-            echo "❌ خطا در آپلود. کد وضعیت: $HTTP_STATUS"
+            echo "❌ خطا در آپلود سرور Filebin. کد وضعیت: $HTTP_STATUS"
             exit 1
           fi
