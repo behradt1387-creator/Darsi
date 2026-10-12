@@ -1,4 +1,4 @@
-name: Remote Upload to Filebin
+name: Stream Upload to Filebin
 
 on:
   workflow_dispatch:
@@ -8,52 +8,50 @@ on:
         required: true
         type: string
       file_name:
-        description: 'نام فایل همراه با پسوند (مثال: document.pdf یا archive.zip)'
+        description: 'نام فایل همراه با پسوند (مثال: archive.zip)'
         required: true
         type: string
 
 jobs:
-  download-and-upload:
+  stream-upload:
     runs-on: ubuntu-latest
     steps:
-      - name: دانلود و آپلود فایل
+      - name: استریم مستقیم داده‌ها از مبدأ به Filebin
         env:
           TARGET_URL: ${{ inputs.file_url }}
           FILE_NAME: ${{ inputs.file_name }}
         run: |
-          mkdir -p downloads
-          cd downloads
+          set -e -o pipefail
 
-          echo "در حال دانلود فایل..."
-          # دانلود فایل و ذخیره با نام ورودی کاربر
-          curl -L -f --progress-bar "$TARGET_URL" -o "$FILE_NAME"
+          echo "🚀 شروع استریم زنده فایل..."
+          echo "🌐 مبدأ: $TARGET_URL"
+          echo "📦 نام مقصد: $FILE_NAME"
 
-          if [ ! -f "$FILE_NAME" ]; then
-            echo "خطا: فایل دانلود نشد یا لینک نامعتبر است."
-            exit 1
-          fi
+          # دانلود با curl و پایپ مستقیم به آپلود Filebin بدون نوشتن روی دیسک
+          # سوئیچ -T - یعنی داده را به صورت Chunked از stdin بخوان
+          curl -f -L "$TARGET_URL" \
+            | curl -s -S \
+              -X POST \
+              -T - \
+              -H "filename: $FILE_NAME" \
+              -H "Content-Type: application/octet-stream" \
+              -o response.json \
+              -w "%{http_code}" \
+              "https://filebin.net/darsiali/$FILE_NAME" > status_code.txt
 
-          echo "فایل با موفقیت دانلود شد: $FILE_NAME"
-          echo "در حال ارسال به Filebin..."
-
-          # آپلود فایل در پوشه darsiali
-          HTTP_STATUS=$(curl -s -o response.json -w "%{http_code}" -X POST \
-            --data-binary "@$FILE_NAME" \
-            -H "filename: $FILE_NAME" \
-            -H "Content-Type: application/octet-stream" \
-            "https://filebin.net/darsiali/$FILE_NAME")
-
-          echo "کد پاسخ سرور: $HTTP_STATUS"
+          HTTP_STATUS=$(cat status_code.txt)
+          echo ""
+          echo "کد وضعیت HTTP سرور: $HTTP_STATUS"
           cat response.json
 
           if [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 300 ]; then
             echo ""
             echo "--------------------------------------------------"
-            echo "✅ آپلود با موفقیت انجام شد."
-            echo "📁 لینک سطل: https://filebin.net/darsiali"
-            echo "📥 لینک مستقیم فایل: https://filebin.net/darsiali/$FILE_NAME"
+            echo "✅ استریم و انتقال با موفقیت تکمیل شد."
+            echo "📁 پوشه: https://filebin.net/darsiali"
+            echo "📥 فایل: https://filebin.net/darsiali/$FILE_NAME"
             echo "--------------------------------------------------"
           else
-            echo "❌ خطا در آپلود. کد وضعیت: $HTTP_STATUS"
+            echo "❌ خطا در حین انتقال. کد وضعیت: $HTTP_STATUS"
             exit 1
           fi
