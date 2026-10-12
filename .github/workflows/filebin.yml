@@ -7,35 +7,36 @@ on:
         description: 'لینک مستقیم فایل برای دانلود'
         required: true
         type: string
+      file_name:
+        description: 'نام فایل همراه با پسوند (مثال: document.pdf یا archive.zip)'
+        required: true
+        type: string
 
 jobs:
   download-and-upload:
     runs-on: ubuntu-latest
     steps:
-      - name: دانلود فایل
+      - name: دانلود و آپلود فایل
         env:
           TARGET_URL: ${{ inputs.file_url }}
+          FILE_NAME: ${{ inputs.file_name }}
         run: |
           mkdir -p downloads
           cd downloads
-          # دانلود فایل و تشخیص خودکار نام اصلی از روی هدرهای سرور
-          wget --content-disposition --trust-server-names "$TARGET_URL"
 
-      - name: آپلود به Filebin در پوشه darsiali
-        run: |
-          cd downloads
-          # پیدا کردن نام فایلی که دانلود شده است
-          FILE_NAME=$(ls -1 | head -n 1)
+          echo "در حال دانلود فایل..."
+          # دانلود فایل و ذخیره با نام ورودی کاربر
+          curl -L -f --progress-bar "$TARGET_URL" -o "$FILE_NAME"
 
-          if [ -z "$FILE_NAME" ]; then
-            echo "خطا: فایلی یافت نشد."
+          if [ ! -f "$FILE_NAME" ]; then
+            echo "خطا: فایل دانلود نشد یا لینک نامعتبر است."
             exit 1
           fi
 
-          echo "فایل شناسایی شد: $FILE_NAME"
+          echo "فایل با موفقیت دانلود شد: $FILE_NAME"
           echo "در حال ارسال به Filebin..."
 
-          # ارسال به API پوشه darsiali در filebin
+          # آپلود فایل در پوشه darsiali
           HTTP_STATUS=$(curl -s -o response.json -w "%{http_code}" -X POST \
             --data-binary "@$FILE_NAME" \
             -H "filename: $FILE_NAME" \
@@ -49,8 +50,8 @@ jobs:
             echo ""
             echo "--------------------------------------------------"
             echo "✅ آپلود با موفقیت انجام شد."
-            echo "📁 لینک پوشه: https://filebin.net/darsiali"
-            echo "📥 لینک فایل: https://filebin.net/darsiali/$FILE_NAME"
+            echo "📁 لینک سطل: https://filebin.net/darsiali"
+            echo "📥 لینک مستقیم فایل: https://filebin.net/darsiali/$FILE_NAME"
             echo "--------------------------------------------------"
           else
             echo "❌ خطا در آپلود. کد وضعیت: $HTTP_STATUS"
